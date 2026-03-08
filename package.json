@@ -1,0 +1,22 @@
+{
+  "name": "gctoken",
+  "version": "1.0.0",
+  "description": "CLI tool to estimate GitHub Copilot token usage and costs from local session logs",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "gctoken": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"const fs=require('fs');['modelPricing.json','tokenEstimators.json'].forEach(f=>fs.copyFileSync('src/'+f,'dist/'+f))\"",
+    "start": "node dist/cli.js",
+    "dev": "tsc && node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}
