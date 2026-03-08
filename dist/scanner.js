@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -128,10 +129,76 @@ function getVSCodeUserDataPaths() {
     if (process.env.WSL_DISTRO_NAME ||
         process.env.WSLENV ||
         process.platform === "linux") {
-        const wslWindowsPath = path.join("/mnt/c/Users", process.env.LOGNAME ?? process.env.USER ?? "", "AppData/Roaming/Code/User");
-        paths.push(wslWindowsPath);
+        const winUser = getWindowsUsername();
+        if (winUser) {
+            const wslWindowsPath = path.join("/mnt/c/Users", winUser, "AppData/Roaming/Code/User");
+            paths.push(wslWindowsPath);
+        }
     }
     return paths;
+}
+function getWindowsUsername() {
+    // 1. Try USERPROFILE-based detection (set by WSLENV or interop)
+    const userProfile = process.env.USERPROFILE;
+    if (userProfile) {
+        const match = /[/\\]Users[/\\]([^/\\]+)/i.exec(userProfile);
+        if (match) {
+            return match[1];
+        }
+    }
+    // 2. Try cmd.exe /c to get Windows USERNAME
+    try {
+        const result = execSync("cmd.exe /c echo %USERNAME%", {
+            encoding: "utf8",
+            timeout: 3000,
+            stdio: ["pipe", "pipe", "pipe"],
+        }).trim();
+        if (result && !result.includes("%USERNAME%")) {
+            return result;
+        }
+    }
+    catch {
+        // cmd.exe not available or interop disabled
+    }
+    // 3. Try wslvar
+    try {
+        const result = execSync("wslvar USERNAME", {
+            encoding: "utf8",
+            timeout: 3000,
+            stdio: ["pipe", "pipe", "pipe"],
+        }).trim();
+        if (result) {
+            return result;
+        }
+    }
+    catch {
+        // wslvar not installed
+    }
+    // 4. Scan /mnt/c/Users/ for a profile that has AppData
+    try {
+        const usersDir = "/mnt/c/Users";
+        const { readdirSync, statSync } = require("node:fs");
+        const entries = readdirSync(usersDir);
+        for (const entry of entries) {
+            if (entry === "Public" || entry === "Default" || entry === "Default User" || entry === "All Users") {
+                continue;
+            }
+            try {
+                const appDataPath = path.join(usersDir, entry, "AppData/Roaming/Code/User");
+                if (statSync(appDataPath).isDirectory()) {
+                    return entry;
+                }
+            }
+            catch {
+                continue;
+            }
+        }
+    }
+    catch {
+        // /mnt/c/ not mounted
+    }
+    // 5. Fallback to Linux username
+    return process.env.LOGNAME ?? process.env.USER ?? "";
 }
 async function getCopilotSessionFiles(lookbackDays) {
     const basePaths = getVSCodeUserDataPaths();
