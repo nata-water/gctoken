@@ -2,7 +2,7 @@
 
 GitHub Copilot のローカルセッションログからトークン使用量と推定コスト（直接 API 利用時の参考価格）をワンライナーで取得する CLI ツールです。
 
-> [!Note] 
+> [!Note]
 > 個人的な確認用途で作成したツールです。本リポジトリのコードは GitHub Copilot（コーディングエージェント）の支援を受けて作成しています。
 
 ## Usage
@@ -44,7 +44,18 @@ Scanned:               124 files
 
 ## How it works
 
-VS Code が保存する GitHub Copilot のチャットセッションログ（`%APPDATA%/Code/User/` 配下）を読み取り、各リクエストのトークン使用量を集計します。トークン数が記録されていないセッションについては、文字数ベースの推定を行います。
+VS Code が保存する GitHub Copilot のチャットセッションログを読み取り、各リクエストのトークン使用量を集計します。トークン数が記録されていないセッションについては、文字数ベースの推定を行います。
+
+### Supported platforms
+
+| 環境                     | 探索パス                                                           |
+| ------------------------ | ------------------------------------------------------------------ |
+| Windows                  | `%APPDATA%/Code/User/`                                             |
+| macOS                    | `~/Library/Application Support/Code/User/`                         |
+| Linux                    | `~/.config/Code/User/`                                             |
+| WSL                      | 上記 Linux パス + `/mnt/c/Users/<user>/AppData/Roaming/Code/User/` |
+| VS Code Remote (WSL/SSH) | `~/.vscode-server/data/User/`                                      |
+
 
 ## Acknowledgements
 

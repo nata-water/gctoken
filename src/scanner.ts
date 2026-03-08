@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -12,7 +11,7 @@ import type {
   PricingMap,
   UsageResult,
 } from "./types.js";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -184,81 +183,32 @@ function getVSCodeUserDataPaths(): string[] {
     process.env.WSLENV ||
     process.platform === "linux"
   ) {
-    const winUser = getWindowsUsername();
-    if (winUser) {
-      const wslWindowsPath = path.join(
-        "/mnt/c/Users",
-        winUser,
-        "AppData/Roaming/Code/User",
-      );
-      paths.push(wslWindowsPath);
-    }
+    const wslWindowsPaths = findWindowsVSCodePaths();
+    paths.push(...wslWindowsPaths);
   }
 
   return paths;
 }
 
-function getWindowsUsername(): string {
-  // 1. Try USERPROFILE-based detection (set by WSLENV or interop)
-  const userProfile = process.env.USERPROFILE;
-  if (userProfile) {
-    const match = /[/\\]Users[/\\]([^/\\]+)/i.exec(userProfile);
-    if (match) {
-      return match[1];
-    }
-  }
+function findWindowsVSCodePaths(): string[] {
+  const skipNames = new Set(["Public", "Default", "Default User", "All Users"]);
+  const results: string[] = [];
+  const usersDir = "/mnt/c/Users";
 
-  // 2. Try cmd.exe /c to get Windows USERNAME
   try {
-    const result = execSync("cmd.exe /c echo %USERNAME%", {
-      encoding: "utf8",
-      timeout: 3000,
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (result && !result.includes("%USERNAME%")) {
-      return result;
-    }
-  } catch {
-    // cmd.exe not available or interop disabled
-  }
-
-  // 3. Try wslvar
-  try {
-    const result = execSync("wslvar USERNAME", {
-      encoding: "utf8",
-      timeout: 3000,
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (result) {
-      return result;
-    }
-  } catch {
-    // wslvar not installed
-  }
-
-  // 4. Scan /mnt/c/Users/ for a profile that has AppData
-  try {
-    const usersDir = "/mnt/c/Users";
-    const { readdirSync, statSync } =
-      require("node:fs") as typeof import("node:fs");
     const entries = readdirSync(usersDir);
     for (const entry of entries) {
-      if (
-        entry === "Public" ||
-        entry === "Default" ||
-        entry === "Default User" ||
-        entry === "All Users"
-      ) {
+      if (skipNames.has(entry)) {
         continue;
       }
       try {
-        const appDataPath = path.join(
+        const vscodeUserPath = path.join(
           usersDir,
           entry,
           "AppData/Roaming/Code/User",
         );
-        if (statSync(appDataPath).isDirectory()) {
-          return entry;
+        if (statSync(vscodeUserPath).isDirectory()) {
+          results.push(vscodeUserPath);
         }
       } catch {
         continue;
@@ -268,11 +218,12 @@ function getWindowsUsername(): string {
     // /mnt/c/ not mounted
   }
 
-  // 5. Fallback to Linux username
-  return process.env.LOGNAME ?? process.env.USER ?? "";
+  return results;
 }
 
-async function getCopilotSessionFiles(lookbackDays: number): Promise<string[]> {
+async function getCopilotSessionFiles(
+  lookbackDays: number,
+): Promise<{ files: string[]; paths: string[] }> {
   const basePaths = getVSCodeUserDataPaths();
   const candidates = new Set<string>();
   const cutoffTime = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
@@ -297,7 +248,7 @@ async function getCopilotSessionFiles(lookbackDays: number): Promise<string[]> {
     );
   }
 
-  return Array.from(candidates).sort();
+  return { files: Array.from(candidates).sort(), paths: basePaths };
 }
 
 function toDayKey(date: Date): string {
@@ -397,7 +348,8 @@ function buildMonthlyBreakdown(
 }
 
 export async function scanUsage(lookbackDays: number): Promise<UsageResult> {
-  const sessionFiles = await getCopilotSessionFiles(lookbackDays);
+  const { files: sessionFiles, paths: scannedPaths } =
+    await getCopilotSessionFiles(lookbackDays);
   const todayKey = toDayKey(new Date());
   const monthPrefix = todayKey.slice(0, 7);
   const lookbackStart = getStartDateForDays(lookbackDays);
@@ -473,6 +425,7 @@ export async function scanUsage(lookbackDays: number): Promise<UsageResult> {
     daily,
     monthly,
     scannedFiles: sessionFiles.length,
+    scannedPaths,
     lookbackDays,
     lastUpdated: new Date().toISOString(),
   };

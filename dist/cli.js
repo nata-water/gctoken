@@ -6,6 +6,7 @@ function parseArgs(argv) {
         json: false,
         period: "days",
         models: false,
+        verbose: false,
         help: false,
     };
     for (let i = 2; i < argv.length; i++) {
@@ -36,6 +37,10 @@ function parseArgs(argv) {
             case "--models":
                 opts.models = true;
                 break;
+            case "--verbose":
+            case "-v":
+                opts.verbose = true;
+                break;
             case "--help":
             case "-h":
                 opts.help = true;
@@ -59,6 +64,7 @@ Options:
   -t, --today      Show today's usage only
   -m, --month      Show current month's usage only
   --models         Show per-model breakdown
+  -v, --verbose    Show scanned paths (debug)
   -j, --json       Output as JSON
   -h, --help       Show this help
 
@@ -107,6 +113,12 @@ function printText(result, opts) {
         lines.push(`  Thinking:   ${formatNumber(stats.thinkingTokens).padStart(12)}`);
     }
     lines.push(`Interactions: ${formatNumber(stats.interactions).padStart(12)}`, `Sessions:     ${formatNumber(stats.sessions).padStart(12)}`, `Est. Cost:    ${formatCurrency(stats.estimatedCost).padStart(12)}`, `Scanned:      ${formatNumber(result.scannedFiles).padStart(12)} files`);
+    if (opts.verbose) {
+        lines.push("", "Scanned paths:");
+        for (const p of result.scannedPaths) {
+            lines.push(`  ${p}`);
+        }
+    }
     if (opts.models && Object.keys(stats.modelUsage).length > 0) {
         lines.push("", "Per-model breakdown:");
         lines.push(`${"  Model".padEnd(32)} ${"Input".padStart(10)} ${"Output".padStart(10)}`);
@@ -135,6 +147,9 @@ function printJson(result, opts) {
     };
     if (opts.models) {
         output.modelUsage = stats.modelUsage;
+    }
+    if (opts.verbose) {
+        output.scannedPaths = result.scannedPaths;
     }
     process.stdout.write(JSON.stringify(output, null, 2) + "\n");
 }

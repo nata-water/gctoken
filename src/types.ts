@@ -63,4 +63,5 @@ export interface UsageResult {
   scannedFiles: number;
   lookbackDays: number;
   lastUpdated: string;
+  scannedPaths: string[];
 }

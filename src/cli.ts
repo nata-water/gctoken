@@ -8,6 +8,7 @@ interface CliOptions {
   json: boolean;
   period: "today" | "month" | "days";
   models: boolean;
+  verbose: boolean;
   help: boolean;
 }
 
@@ -17,6 +18,7 @@ function parseArgs(argv: string[]): CliOptions {
     json: false,
     period: "days",
     models: false,
+    verbose: false,
     help: false,
   };
 
@@ -48,6 +50,10 @@ function parseArgs(argv: string[]): CliOptions {
       case "--models":
         opts.models = true;
         break;
+      case "--verbose":
+      case "-v":
+        opts.verbose = true;
+        break;
       case "--help":
       case "-h":
         opts.help = true;
@@ -73,6 +79,7 @@ Options:
   -t, --today      Show today's usage only
   -m, --month      Show current month's usage only
   --models         Show per-model breakdown
+  -v, --verbose    Show scanned paths (debug)
   -j, --json       Output as JSON
   -h, --help       Show this help
 
@@ -139,6 +146,13 @@ function printText(result: UsageResult, opts: CliOptions): void {
     `Scanned:      ${formatNumber(result.scannedFiles).padStart(12)} files`,
   );
 
+  if (opts.verbose) {
+    lines.push("", "Scanned paths:");
+    for (const p of result.scannedPaths) {
+      lines.push(`  ${p}`);
+    }
+  }
+
   if (opts.models && Object.keys(stats.modelUsage).length > 0) {
     lines.push("", "Per-model breakdown:");
     lines.push(
@@ -180,6 +194,10 @@ function printJson(result: UsageResult, opts: CliOptions): void {
 
   if (opts.models) {
     output.modelUsage = stats.modelUsage;
+  }
+
+  if (opts.verbose) {
+    output.scannedPaths = result.scannedPaths;
   }
 
   process.stdout.write(JSON.stringify(output, null, 2) + "\n");
