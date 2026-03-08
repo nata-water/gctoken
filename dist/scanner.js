@@ -110,14 +110,38 @@ async function collectFiles(dirPath, target, cutoffTime, recursive) {
         return;
     }
 }
+function getVSCodeUserDataPaths() {
+    const home = os.homedir();
+    const platform = process.platform;
+    if (platform === "win32") {
+        const appData = process.env.APPDATA ?? path.join(home, "AppData", "Roaming");
+        return [path.join(appData, "Code", "User")];
+    }
+    if (platform === "darwin") {
+        return [path.join(home, "Library", "Application Support", "Code", "User")];
+    }
+    // Linux / WSL
+    const paths = [path.join(home, ".config", "Code", "User")];
+    // VS Code Remote (WSL / SSH): server-side data
+    paths.push(path.join(home, ".vscode-server", "data", "User"));
+    // WSL: also try to read Windows-side sessions via /mnt/c/
+    if (process.env.WSL_DISTRO_NAME ||
+        process.env.WSLENV ||
+        process.platform === "linux") {
+        const wslWindowsPath = path.join("/mnt/c/Users", process.env.LOGNAME ?? process.env.USER ?? "", "AppData/Roaming/Code/User");
+        paths.push(wslWindowsPath);
+    }
+    return paths;
+}
 async function getCopilotSessionFiles(lookbackDays) {
-    const appDataPath = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
-    const basePath = path.join(appDataPath, "Code", "User");
+    const basePaths = getVSCodeUserDataPaths();
     const candidates = new Set();
     const cutoffTime = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
-    await collectWorkspaceChatSessionFiles(path.join(basePath, "workspaceStorage"), candidates, cutoffTime);
-    await collectFiles(path.join(basePath, "globalStorage", "emptyWindowChatSessions"), candidates, cutoffTime, false);
-    await collectFiles(path.join(basePath, "globalStorage", "github.copilot-chat"), candidates, cutoffTime, true);
+    for (const basePath of basePaths) {
+        await collectWorkspaceChatSessionFiles(path.join(basePath, "workspaceStorage"), candidates, cutoffTime);
+        await collectFiles(path.join(basePath, "globalStorage", "emptyWindowChatSessions"), candidates, cutoffTime, false);
+        await collectFiles(path.join(basePath, "globalStorage", "github.copilot-chat"), candidates, cutoffTime, true);
+    }
     return Array.from(candidates).sort();
 }
 function toDayKey(date) {
