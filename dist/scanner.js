@@ -73,7 +73,17 @@ async function collectWorkspaceChatSessionFiles(baseDir, target, cutoffTime) {
             if (!entry.isDirectory()) {
                 continue;
             }
-            await collectFiles(path.join(baseDir, entry.name, "chatSessions"), target, cutoffTime, false);
+            const workspacePath = path.join(baseDir, entry.name);
+            const sessionDirs = [
+                path.join(workspacePath, "chatSessions"),
+                path.join(workspacePath, "GitHub.copilot-chat", "chatSessions"),
+                path.join(workspacePath, "github.copilot-chat", "chatSessions"),
+                path.join(workspacePath, "GitHub.copilot", "chatSessions"),
+                path.join(workspacePath, "github.copilot", "chatSessions"),
+            ];
+            for (const sessionDir of sessionDirs) {
+                await collectFiles(sessionDir, target, cutoffTime, false);
+            }
         }
     }
     catch {
@@ -115,15 +125,18 @@ function getVSCodeUserDataPaths() {
     const platform = process.platform;
     if (platform === "win32") {
         const appData = process.env.APPDATA ?? path.join(home, "AppData", "Roaming");
-        return [path.join(appData, "Code", "User")];
+        return getVSCodeVariants().map((variant) => path.join(appData, variant, "User"));
     }
     if (platform === "darwin") {
-        return [path.join(home, "Library", "Application Support", "Code", "User")];
+        return getVSCodeVariants().map((variant) => path.join(home, "Library", "Application Support", variant, "User"));
     }
     // Linux / WSL
-    const paths = [path.join(home, ".config", "Code", "User")];
+    const configHome = process.env.XDG_CONFIG_HOME ?? path.join(home, ".config");
+    const paths = getVSCodeVariants().map((variant) => path.join(configHome, variant, "User"));
     // VS Code Remote (WSL / SSH): server-side data
     paths.push(path.join(home, ".vscode-server", "data", "User"));
+    paths.push(path.join(home, ".vscode-server-insiders", "data", "User"));
+    paths.push(path.join(home, ".vscode-remote", "data", "User"));
     // WSL: also try to read Windows-side sessions via /mnt/c/
     if (process.env.WSL_DISTRO_NAME ||
         process.env.WSLENV ||
@@ -132,6 +145,9 @@ function getVSCodeUserDataPaths() {
         paths.push(...wslWindowsPaths);
     }
     return paths;
+}
+function getVSCodeVariants() {
+    return ["Code", "Code - Insiders", "Code - Exploration", "VSCodium", "Cursor"];
 }
 function findWindowsVSCodePaths() {
     const skipNames = new Set(["Public", "Default", "Default User", "All Users"]);
@@ -143,14 +159,16 @@ function findWindowsVSCodePaths() {
             if (skipNames.has(entry)) {
                 continue;
             }
-            try {
-                const vscodeUserPath = path.join(usersDir, entry, "AppData/Roaming/Code/User");
-                if (statSync(vscodeUserPath).isDirectory()) {
-                    results.push(vscodeUserPath);
+            for (const variant of getVSCodeVariants()) {
+                try {
+                    const userPath = path.join(usersDir, entry, "AppData", "Roaming", variant, "User");
+                    if (statSync(userPath).isDirectory()) {
+                        results.push(userPath);
+                    }
                 }
-            }
-            catch {
-                continue;
+                catch {
+                    continue;
+                }
             }
         }
     }
@@ -167,6 +185,9 @@ async function getCopilotSessionFiles(lookbackDays) {
         await collectWorkspaceChatSessionFiles(path.join(basePath, "workspaceStorage"), candidates, cutoffTime);
         await collectFiles(path.join(basePath, "globalStorage", "emptyWindowChatSessions"), candidates, cutoffTime, false);
         await collectFiles(path.join(basePath, "globalStorage", "github.copilot-chat"), candidates, cutoffTime, true);
+        await collectFiles(path.join(basePath, "globalStorage", "GitHub.copilot-chat"), candidates, cutoffTime, true);
+        await collectFiles(path.join(basePath, "globalStorage", "github.copilot"), candidates, cutoffTime, true);
+        await collectFiles(path.join(basePath, "globalStorage", "GitHub.copilot"), candidates, cutoffTime, true);
     }
     return { files: Array.from(candidates).sort(), paths: basePaths };
 }

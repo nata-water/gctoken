@@ -107,12 +107,17 @@ async function collectWorkspaceChatSessionFiles(
       if (!entry.isDirectory()) {
         continue;
       }
-      await collectFiles(
-        path.join(baseDir, entry.name, "chatSessions"),
-        target,
-        cutoffTime,
-        false,
-      );
+      const workspacePath = path.join(baseDir, entry.name);
+      const sessionDirs = [
+        path.join(workspacePath, "chatSessions"),
+        path.join(workspacePath, "GitHub.copilot-chat", "chatSessions"),
+        path.join(workspacePath, "github.copilot-chat", "chatSessions"),
+        path.join(workspacePath, "GitHub.copilot", "chatSessions"),
+        path.join(workspacePath, "github.copilot", "chatSessions"),
+      ];
+      for (const sessionDir of sessionDirs) {
+        await collectFiles(sessionDir, target, cutoffTime, false);
+      }
     }
   } catch {
     return;
@@ -164,18 +169,27 @@ function getVSCodeUserDataPaths(): string[] {
   if (platform === "win32") {
     const appData =
       process.env.APPDATA ?? path.join(home, "AppData", "Roaming");
-    return [path.join(appData, "Code", "User")];
+    return getVSCodeVariants().map((variant) =>
+      path.join(appData, variant, "User"),
+    );
   }
 
   if (platform === "darwin") {
-    return [path.join(home, "Library", "Application Support", "Code", "User")];
+    return getVSCodeVariants().map((variant) =>
+      path.join(home, "Library", "Application Support", variant, "User"),
+    );
   }
 
   // Linux / WSL
-  const paths = [path.join(home, ".config", "Code", "User")];
+  const configHome = process.env.XDG_CONFIG_HOME ?? path.join(home, ".config");
+  const paths = getVSCodeVariants().map((variant) =>
+    path.join(configHome, variant, "User"),
+  );
 
   // VS Code Remote (WSL / SSH): server-side data
   paths.push(path.join(home, ".vscode-server", "data", "User"));
+  paths.push(path.join(home, ".vscode-server-insiders", "data", "User"));
+  paths.push(path.join(home, ".vscode-remote", "data", "User"));
 
   // WSL: also try to read Windows-side sessions via /mnt/c/
   if (
@@ -190,6 +204,10 @@ function getVSCodeUserDataPaths(): string[] {
   return paths;
 }
 
+function getVSCodeVariants(): string[] {
+  return ["Code", "Code - Insiders", "Code - Exploration", "VSCodium", "Cursor"];
+}
+
 function findWindowsVSCodePaths(): string[] {
   const skipNames = new Set(["Public", "Default", "Default User", "All Users"]);
   const results: string[] = [];
@@ -201,17 +219,22 @@ function findWindowsVSCodePaths(): string[] {
       if (skipNames.has(entry)) {
         continue;
       }
-      try {
-        const vscodeUserPath = path.join(
-          usersDir,
-          entry,
-          "AppData/Roaming/Code/User",
-        );
-        if (statSync(vscodeUserPath).isDirectory()) {
-          results.push(vscodeUserPath);
+      for (const variant of getVSCodeVariants()) {
+        try {
+          const userPath = path.join(
+            usersDir,
+            entry,
+            "AppData",
+            "Roaming",
+            variant,
+            "User",
+          );
+          if (statSync(userPath).isDirectory()) {
+            results.push(userPath);
+          }
+        } catch {
+          continue;
         }
-      } catch {
-        continue;
       }
     }
   } catch {
@@ -242,6 +265,24 @@ async function getCopilotSessionFiles(
     );
     await collectFiles(
       path.join(basePath, "globalStorage", "github.copilot-chat"),
+      candidates,
+      cutoffTime,
+      true,
+    );
+    await collectFiles(
+      path.join(basePath, "globalStorage", "GitHub.copilot-chat"),
+      candidates,
+      cutoffTime,
+      true,
+    );
+    await collectFiles(
+      path.join(basePath, "globalStorage", "github.copilot"),
+      candidates,
+      cutoffTime,
+      true,
+    );
+    await collectFiles(
+      path.join(basePath, "globalStorage", "GitHub.copilot"),
       candidates,
       cutoffTime,
       true,

@@ -13,11 +13,45 @@ function normalizeModelId(model, fallback = "gpt-4o") {
         ? trimmed.slice("copilot/".length)
         : trimmed;
 }
+function getNestedObject(value, key) {
+    if (!isObject(value)) {
+        return undefined;
+    }
+    const nested = value[key];
+    return isObject(nested) ? nested : undefined;
+}
 function extractUsage(value) {
     if (!isObject(value)) {
         return undefined;
     }
     const record = value;
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const usage = isObject(record.usage) ? record.usage : undefined;
+    const candidates = [usage, metadata, record].filter(isObject);
+    for (const candidate of candidates) {
+        const inputTokens = getNumber(candidate.promptTokens) ??
+            getNumber(candidate.inputTokens) ??
+            getNumber(candidate.prompt_tokens) ??
+            getNumber(candidate.input_tokens) ??
+            0;
+        const outputBase = getNumber(candidate.outputTokens) ??
+            getNumber(candidate.completionTokens) ??
+            getNumber(candidate.output_tokens) ??
+            getNumber(candidate.completion_tokens) ??
+            0;
+        const thinkingTokens = getNumber(candidate.reasoningTokens) ??
+            getNumber(candidate.thinkingTokens) ??
+            getNumber(candidate.reasoning_tokens) ??
+            getNumber(candidate.thinking_tokens) ??
+            0;
+        if (inputTokens > 0 || outputBase > 0 || thinkingTokens > 0) {
+            return {
+                inputTokens,
+                outputTokens: outputBase + thinkingTokens,
+                thinkingTokens,
+            };
+        }
+    }
     const inputTokens = getNumber(record.promptTokens) ?? getNumber(record.inputTokens) ?? 0;
     const outputBase = getNumber(record.outputTokens) ?? getNumber(record.completionTokens) ?? 0;
     const thinkingTokens = getNumber(record.reasoningTokens) ?? getNumber(record.thinkingTokens) ?? 0;
@@ -64,6 +98,60 @@ function extractResponseText(response) {
         }
     }
     return { text, thinkingText };
+}
+function extractMessageText(message) {
+    if (typeof message === "string") {
+        return message;
+    }
+    if (!isObject(message)) {
+        return "";
+    }
+    if (typeof message.text === "string") {
+        return message.text;
+    }
+    if (!Array.isArray(message.parts)) {
+        return "";
+    }
+    return message.parts
+        .map((part) => isObject(part) && typeof part.text === "string" ? part.text : "")
+        .join("");
+}
+function stringifyStreamingText(value) {
+    if (typeof value === "string") {
+        return value;
+    }
+    if (!isObject(value)) {
+        return "";
+    }
+    return Object.entries(value)
+        .sort(([left], [right]) => Number(left) - Number(right))
+        .map(([, item]) => (typeof item === "string" ? item : ""))
+        .join("");
+}
+function extractSubAgentText(item) {
+    if (!isObject(item) || item.kind !== "toolInvocationSerialized") {
+        return undefined;
+    }
+    const toolSpecificData = getNestedObject(item, "toolSpecificData");
+    if (!toolSpecificData || toolSpecificData.kind !== "subagent") {
+        return undefined;
+    }
+    const prompt = typeof toolSpecificData.prompt === "string" ? toolSpecificData.prompt : "";
+    const result = stringifyStreamingText(toolSpecificData.result);
+    const model = typeof toolSpecificData.modelName === "string"
+        ? toolSpecificData.modelName.trim().toLowerCase().replace(/\s+/g, "-")
+        : undefined;
+    if (!prompt && !result) {
+        return undefined;
+    }
+    return { prompt, result, model };
+}
+function addModelUsage(modelUsage, model, inputTokens, outputTokens) {
+    if (!modelUsage[model]) {
+        modelUsage[model] = { inputTokens: 0, outputTokens: 0 };
+    }
+    modelUsage[model].inputTokens += inputTokens;
+    modelUsage[model].outputTokens += outputTokens;
 }
 function applyDelta(state, delta) {
     if (!isObject(delta)) {
@@ -170,6 +258,85 @@ function parseJsonl(content) {
         return undefined;
     }
 }
+function parseEventJsonlSession(fileContent, estimateTokensFromText) {
+    const lines = fileContent.split(/\r?\n/).filter((line) => line.trim());
+    if (lines.length === 0) {
+        return undefined;
+    }
+    const model = "gpt-4o";
+    const modelUsage = {};
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let thinkingTokens = 0;
+    let interactions = 0;
+    let sawEvent = false;
+    for (const line of lines) {
+        let event;
+        try {
+            event = JSON.parse(line);
+        }
+        catch {
+            continue;
+        }
+        if (!isObject(event) || typeof event.type !== "string") {
+            continue;
+        }
+        sawEvent = true;
+        const data = isObject(event.data) ? event.data : {};
+        if (event.type === "user.message") {
+            const text = typeof data.content === "string" ? data.content : "";
+            if (text.trim()) {
+                interactions += 1;
+            }
+            if (text) {
+                const tokens = estimateTokensFromText(text, model);
+                inputTokens += tokens;
+                addModelUsage(modelUsage, model, tokens, 0);
+            }
+            continue;
+        }
+        if (event.type === "assistant.message") {
+            const text = typeof data.content === "string" ? data.content : "";
+            const reasoningText = typeof data.reasoningText === "string" ? data.reasoningText : "";
+            if (text) {
+                const tokens = estimateTokensFromText(text, model);
+                outputTokens += tokens;
+                addModelUsage(modelUsage, model, 0, tokens);
+            }
+            if (reasoningText) {
+                const tokens = estimateTokensFromText(reasoningText, model);
+                thinkingTokens += tokens;
+                outputTokens += tokens;
+                addModelUsage(modelUsage, model, 0, tokens);
+            }
+            continue;
+        }
+        if (event.type === "tool.execution_complete") {
+            const result = isObject(data.result) ? data.result : undefined;
+            const text = typeof result?.detailedContent === "string"
+                ? result.detailedContent
+                : typeof result?.content === "string"
+                    ? result.content
+                    : "";
+            if (text) {
+                const tokens = estimateTokensFromText(text, model);
+                outputTokens += tokens;
+                addModelUsage(modelUsage, model, 0, tokens);
+            }
+        }
+    }
+    if (!sawEvent) {
+        return undefined;
+    }
+    return {
+        tokens: inputTokens + outputTokens,
+        inputTokens,
+        outputTokens,
+        thinkingTokens,
+        interactions,
+        modelUsage,
+    };
+}
 function safeJsonParse(content) {
     try {
         return JSON.parse(content);
@@ -179,6 +346,12 @@ function safeJsonParse(content) {
     }
 }
 export function parseSessionFileContent(filePath, fileContent, estimateTokensFromText) {
+    if (filePath.endsWith(".jsonl")) {
+        const eventSession = parseEventJsonlSession(fileContent, estimateTokensFromText);
+        if (eventSession && eventSession.tokens > 0) {
+            return eventSession;
+        }
+    }
     const parsed = filePath.endsWith(".jsonl")
         ? parseJsonl(fileContent)
         : safeJsonParse(fileContent);
@@ -192,7 +365,11 @@ export function parseSessionFileContent(filePath, fileContent, estimateTokensFro
             modelUsage: {},
         };
     }
-    const requests = Array.isArray(parsed.requests) ? parsed.requests : [];
+    const requests = Array.isArray(parsed.requests)
+        ? parsed.requests
+        : Array.isArray(parsed.history)
+            ? parsed.history
+            : [];
     const modelUsage = {};
     let inputTokens = 0;
     let outputTokens = 0;
@@ -209,12 +386,9 @@ export function parseSessionFileContent(filePath, fileContent, estimateTokensFro
         if (!modelUsage[model]) {
             modelUsage[model] = { inputTokens: 0, outputTokens: 0 };
         }
-        const messageText = isObject(request.message) && typeof request.message.text === "string"
-            ? request.message.text
-            : typeof request.prompt === "string"
-                ? request.prompt
-                : "";
-        const responsePayload = extractResponseText(request.response ?? request.turns ?? request.messages);
+        const messageText = extractMessageText(request.message) ||
+            (typeof request.prompt === "string" ? request.prompt : "");
+        const responsePayload = extractResponseText(request.response ?? request.responses ?? request.turns ?? request.messages);
         const usage = extractUsage(isObject(request.result)
             ? (request.result.usage ?? request.result)
             : request.result);
@@ -250,6 +424,28 @@ export function parseSessionFileContent(filePath, fileContent, estimateTokensFro
             thinkingTokens += estimatedThinkingTokens;
             outputTokens += estimatedThinkingTokens;
             modelUsage[model].outputTokens += estimatedThinkingTokens;
+        }
+        const responseItems = Array.isArray(request.response)
+            ? request.response
+            : Array.isArray(request.responses)
+                ? request.responses
+                : [];
+        for (const responseItem of responseItems) {
+            const subAgent = extractSubAgentText(responseItem);
+            if (!subAgent) {
+                continue;
+            }
+            const subAgentModel = normalizeModelId(subAgent.model, model);
+            if (subAgent.prompt) {
+                const estimatedInputTokens = estimateTokensFromText(subAgent.prompt, subAgentModel);
+                inputTokens += estimatedInputTokens;
+                addModelUsage(modelUsage, subAgentModel, estimatedInputTokens, 0);
+            }
+            if (subAgent.result) {
+                const estimatedOutputTokens = estimateTokensFromText(subAgent.result, subAgentModel);
+                outputTokens += estimatedOutputTokens;
+                addModelUsage(modelUsage, subAgentModel, 0, estimatedOutputTokens);
+            }
         }
     }
     return {
