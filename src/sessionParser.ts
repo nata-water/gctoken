@@ -19,6 +19,28 @@ function normalizeModelId(model: unknown, fallback = "gpt-4o"): string {
     : trimmed;
 }
 
+function normalizeDisplayModelName(model: string): string {
+  return model.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function extractResultDetails(result: unknown): {
+  model: string | undefined;
+  aiCredits: number;
+} {
+  if (!isObject(result) || typeof result.details !== "string") {
+    return { model: undefined, aiCredits: 0 };
+  }
+
+  const details = result.details.trim();
+  const creditMatch = details.match(/([\d.]+)\s+credits?\b/i);
+  const modelPart = details.split("•")[0]?.trim() ?? "";
+
+  return {
+    model: modelPart ? normalizeDisplayModelName(modelPart) : undefined,
+    aiCredits: creditMatch ? Number(creditMatch[1]) : 0,
+  };
+}
+
 function getNestedObject(value: unknown, key: string): JsonObject | undefined {
   if (!isObject(value)) {
     return undefined;
@@ -30,7 +52,13 @@ function getNestedObject(value: unknown, key: string): JsonObject | undefined {
 function extractUsage(
   value: unknown,
 ):
-  | { inputTokens: number; outputTokens: number; thinkingTokens: number }
+  | {
+      inputTokens: number;
+      outputTokens: number;
+      thinkingTokens: number;
+      cachedInputTokens: number;
+      cacheWriteTokens: number;
+    }
   | undefined {
   if (!isObject(value)) {
     return undefined;
@@ -60,34 +88,38 @@ function extractUsage(
       getNumber(candidate.reasoning_tokens) ??
       getNumber(candidate.thinking_tokens) ??
       0;
+    const cachedInputTokens =
+      getNumber(candidate.cachedInputTokens) ??
+      getNumber(candidate.cacheReadInputTokens) ??
+      getNumber(candidate.cache_read_input_tokens) ??
+      getNumber(candidate.cached_input_tokens) ??
+      0;
+    const cacheWriteTokens =
+      getNumber(candidate.cacheWriteTokens) ??
+      getNumber(candidate.cacheCreationInputTokens) ??
+      getNumber(candidate.cache_creation_input_tokens) ??
+      getNumber(candidate.cache_write_input_tokens) ??
+      0;
 
-    if (inputTokens > 0 || outputBase > 0 || thinkingTokens > 0) {
+    if (
+      inputTokens > 0 ||
+      outputBase > 0 ||
+      thinkingTokens > 0 ||
+      cachedInputTokens > 0 ||
+      cacheWriteTokens > 0
+    ) {
       return {
         inputTokens,
         outputTokens: outputBase + thinkingTokens,
         thinkingTokens,
+        cachedInputTokens,
+        cacheWriteTokens,
       };
     }
   }
 
-  const inputTokens =
-    getNumber(record.promptTokens) ?? getNumber(record.inputTokens) ?? 0;
-  const outputBase =
-    getNumber(record.outputTokens) ?? getNumber(record.completionTokens) ?? 0;
-  const thinkingTokens =
-    getNumber(record.reasoningTokens) ?? getNumber(record.thinkingTokens) ?? 0;
-
-  if (inputTokens === 0 && outputBase === 0 && thinkingTokens === 0) {
-    return undefined;
-  }
-
-  return {
-    inputTokens,
-    outputTokens: outputBase + thinkingTokens,
-    thinkingTokens,
-  };
+  return undefined;
 }
-
 function getNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
@@ -200,12 +232,18 @@ function addModelUsage(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  cachedInputTokens = 0,
+  cacheWriteTokens = 0,
 ): void {
   if (!modelUsage[model]) {
     modelUsage[model] = { inputTokens: 0, outputTokens: 0 };
   }
   modelUsage[model].inputTokens += inputTokens;
   modelUsage[model].outputTokens += outputTokens;
+  modelUsage[model].cachedInputTokens =
+    (modelUsage[model].cachedInputTokens ?? 0) + cachedInputTokens;
+  modelUsage[model].cacheWriteTokens =
+    (modelUsage[model].cacheWriteTokens ?? 0) + cacheWriteTokens;
 }
 
 function applyDelta(state: unknown, delta: unknown): unknown {
@@ -410,6 +448,7 @@ function parseEventJsonlSession(
     outputTokens,
     thinkingTokens,
     interactions,
+    aiCredits: 0,
     modelUsage,
   };
 }
@@ -447,6 +486,7 @@ export function parseSessionFileContent(
       outputTokens: 0,
       thinkingTokens: 0,
       interactions: 0,
+      aiCredits: 0,
       modelUsage: {},
     };
   }
@@ -461,6 +501,7 @@ export function parseSessionFileContent(
   let outputTokens = 0;
   let thinkingTokens = 0;
   let interactions = 0;
+  let aiCredits = 0;
 
   for (const request of requests) {
     if (!isObject(request)) {
@@ -470,9 +511,13 @@ export function parseSessionFileContent(
     const selectedModel = isObject(request.selectedModel)
       ? request.selectedModel
       : undefined;
-    const model = normalizeModelId(
-      request.modelId ?? selectedModel?.identifier ?? request.model,
-    );
+    const resultDetails = extractResultDetails(request.result);
+    const model =
+      resultDetails.model ??
+      normalizeModelId(
+        request.modelId ?? selectedModel?.identifier ?? request.model,
+      );
+    aiCredits += resultDetails.aiCredits;
     if (!modelUsage[model]) {
       modelUsage[model] = { inputTokens: 0, outputTokens: 0 };
     }
@@ -509,6 +554,10 @@ export function parseSessionFileContent(
       thinkingTokens += usage.thinkingTokens;
       modelUsage[model].inputTokens += sessionInputTokens;
       modelUsage[model].outputTokens += sessionOutputTokens;
+      modelUsage[model].cachedInputTokens =
+        (modelUsage[model].cachedInputTokens ?? 0) + usage.cachedInputTokens;
+      modelUsage[model].cacheWriteTokens =
+        (modelUsage[model].cacheWriteTokens ?? 0) + usage.cacheWriteTokens;
       continue;
     }
 
@@ -574,6 +623,7 @@ export function parseSessionFileContent(
     outputTokens,
     thinkingTokens,
     interactions,
+    aiCredits,
     modelUsage,
   };
 }

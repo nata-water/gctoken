@@ -1,6 +1,6 @@
 # gctoken
 
-GitHub Copilot のローカルセッションログからトークン使用量と推定コスト（直接 API 利用時の参考価格）をワンライナーで取得する CLI ツールです。
+GitHub Copilot のローカルセッションログからトークン使用量、推定コスト、推定 GitHub AI Credits 使用量をワンライナーで取得する CLI ツールです。
 
 > [!Note]
 > 個人的な確認用途で作成したツールです。本リポジトリのコードは GitHub Copilot（コーディングエージェント）の支援を受けて作成しています。
@@ -39,12 +39,13 @@ Tokens:             98,503
 Interactions:           12
 Sessions:                3
 Est. Cost:         $0.6138
+Est. Credits:        61.38
 Scanned:               124 files
 ```
 
 ## How it works
 
-VS Code が保存する GitHub Copilot のチャットセッションログを読み取り、各リクエストのトークン使用量を集計します。トークン数が記録されていないセッションについては、文字数ベースの推定を行います。
+VS Code が保存する GitHub Copilot のチャットセッションログを読み取り、各リクエストのトークン使用量を集計します。トークン数が記録されていないセッションについては、文字数ベースの推定を行います。推定 GitHub AI Credits は、公開されているモデル別トークン単価をもとに `1 credit = $0.01 USD` として換算します。
 
 ### Supported platforms
 

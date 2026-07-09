@@ -37,7 +37,11 @@
     "claude-opus-4.6": 0.24,
     "claude-opus-4.6-(fast-mode)-(preview)": 0.24,
     "claude-opus-4.6-fast": 0.24,
-    "claude-opus-4.7": 0.24,
+    "claude-opus-4.7": 0.312,
+    "claude-opus-4.8": 0.312,
+    "claude-opus-4.8-fast": 0.312,
+    "claude-sonnet-5": 0.312,
+    "claude-fable-5": 0.312,
     "gemini-2.5-pro": 0.25,
     "gemini-3-flash": 0.25,
     "gemini-3-pro": 0.25,
@@ -49,6 +53,11 @@
     "o1-preview": 0.25,
     "o1-mini": 0.25,
     "o3-mini": 0.25,
-    "o4-mini": 0.25
+    "o4-mini": 0.25,
+    "gpt-5.4": 0.25,
+    "gpt-5.4-mini": 0.25,
+    "gpt-5.4-nano": 0.25,
+    "gpt-5.5": 0.25,
+    "gpt-5.5-long-context": 0.25
   }
 }

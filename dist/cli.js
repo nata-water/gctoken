@@ -79,6 +79,12 @@ Examples:
 function formatNumber(value) {
     return new Intl.NumberFormat().format(value);
 }
+function formatCredits(value) {
+    return new Intl.NumberFormat(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value);
+}
 function formatCurrency(value) {
     return new Intl.NumberFormat(undefined, {
         style: "currency",
@@ -112,7 +118,7 @@ function printText(result, opts) {
     if (stats.thinkingTokens > 0) {
         lines.push(`  Thinking:   ${formatNumber(stats.thinkingTokens).padStart(12)}`);
     }
-    lines.push(`Interactions: ${formatNumber(stats.interactions).padStart(12)}`, `Sessions:     ${formatNumber(stats.sessions).padStart(12)}`, `Est. Cost:    ${formatCurrency(stats.estimatedCost).padStart(12)}`, `Scanned:      ${formatNumber(result.scannedFiles).padStart(12)} files`);
+    lines.push(`Interactions: ${formatNumber(stats.interactions).padStart(12)}`, `Sessions:     ${formatNumber(stats.sessions).padStart(12)}`, `Est. Cost:    ${formatCurrency(stats.estimatedCost).padStart(12)}`, `Est. Credits: ${formatCredits(stats.estimatedAiCredits).padStart(12)}`, `Scanned:      ${formatNumber(result.scannedFiles).padStart(12)} files`);
     if (opts.verbose) {
         lines.push("", "Scanned paths:");
         for (const p of result.scannedPaths) {
@@ -141,6 +147,8 @@ function printJson(result, opts) {
         interactions: stats.interactions,
         sessions: stats.sessions,
         estimatedCostUsd: Number(stats.estimatedCost.toFixed(6)),
+        estimatedAiCredits: Number(stats.estimatedAiCredits.toFixed(4)),
+        aiCreditUsd: 0.01,
         scannedFiles: result.scannedFiles,
         lookbackDays: result.lookbackDays,
         lastUpdated: result.lastUpdated,

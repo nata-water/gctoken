@@ -2,12 +2,16 @@ export interface ModelUsage {
   [model: string]: {
     inputTokens: number;
     outputTokens: number;
+    cachedInputTokens?: number;
+    cacheWriteTokens?: number;
   };
 }
 
 export interface PricingInfo {
   inputCostPerMillion: number;
   outputCostPerMillion: number;
+  cachedInputCostPerMillion?: number;
+  cacheWriteCostPerMillion?: number;
   displayNames?: string[];
 }
 
@@ -21,6 +25,7 @@ export interface PeriodStats {
   interactions: number;
   sessions: number;
   estimatedCost: number;
+  estimatedAiCredits: number;
   modelUsage: ModelUsage;
 }
 
@@ -32,6 +37,7 @@ export interface DailyPoint {
   thinkingTokens: number;
   interactions: number;
   cost: number;
+  aiCredits: number;
   sessions: number;
   modelUsage: ModelUsage;
 }
@@ -40,6 +46,7 @@ export interface MonthlyPoint {
   month: string;
   tokens: number;
   cost: number;
+  aiCredits: number;
   sessions: number;
   interactions: number;
   daysTracked: number;
@@ -51,6 +58,7 @@ export interface ParsedSession {
   outputTokens: number;
   thinkingTokens: number;
   interactions: number;
+  aiCredits: number;
   modelUsage: ModelUsage;
 }
 

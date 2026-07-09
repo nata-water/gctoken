@@ -34,6 +34,7 @@ const modelPricingJson = loadJson("modelPricing.json");
 const tokenEstimatorsJson = loadJson("tokenEstimators.json");
 
 const pricing = (modelPricingJson.pricing ?? {}) as PricingMap;
+const AI_CREDIT_USD = 0.01;
 const tokenEstimators = (tokenEstimatorsJson.estimators ?? {}) as Record<
   string,
   number
@@ -90,10 +91,23 @@ function calculateEstimatedCost(modelUsage: ModelUsage): number {
     if (!info) {
       continue;
     }
+
+    const cachedInputTokens = usage.cachedInputTokens ?? 0;
+    const cacheWriteTokens = usage.cacheWriteTokens ?? 0;
     total += (usage.inputTokens / 1_000_000) * info.inputCostPerMillion;
+    total +=
+      (cachedInputTokens / 1_000_000) *
+      (info.cachedInputCostPerMillion ?? info.inputCostPerMillion);
+    total +=
+      (cacheWriteTokens / 1_000_000) *
+      (info.cacheWriteCostPerMillion ?? info.inputCostPerMillion);
     total += (usage.outputTokens / 1_000_000) * info.outputCostPerMillion;
   }
   return total;
+}
+
+function calculateAiCredits(costUsd: number): number {
+  return costUsd / AI_CREDIT_USD;
 }
 
 async function collectWorkspaceChatSessionFiles(
@@ -319,11 +333,11 @@ function createEmptyDailyPoint(date: string): DailyPoint {
     thinkingTokens: 0,
     interactions: 0,
     cost: 0,
+    aiCredits: 0,
     sessions: 0,
     modelUsage: {},
   };
 }
-
 function createEmptyPeriodStats(): PeriodStats {
   return {
     tokens: 0,
@@ -333,10 +347,10 @@ function createEmptyPeriodStats(): PeriodStats {
     interactions: 0,
     sessions: 0,
     estimatedCost: 0,
+    estimatedAiCredits: 0,
     modelUsage: {},
   };
 }
-
 function mergeModelUsage(target: ModelUsage, source: ModelUsage): void {
   for (const [model, usage] of Object.entries(source)) {
     if (!target[model]) {
@@ -344,6 +358,10 @@ function mergeModelUsage(target: ModelUsage, source: ModelUsage): void {
     }
     target[model].inputTokens += usage.inputTokens;
     target[model].outputTokens += usage.outputTokens;
+    target[model].cachedInputTokens =
+      (target[model].cachedInputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
+    target[model].cacheWriteTokens =
+      (target[model].cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
   }
 }
 
@@ -358,9 +376,9 @@ function mergePeriodStatsFromDailyPoint(
   target.interactions += point.interactions;
   target.sessions += point.sessions;
   target.estimatedCost += point.cost;
+  target.estimatedAiCredits += point.aiCredits;
   mergeModelUsage(target.modelUsage, point.modelUsage);
 }
-
 function buildMonthlyBreakdown(
   dailyMap: Map<string, DailyPoint>,
 ): MonthlyPoint[] {
@@ -371,12 +389,14 @@ function buildMonthlyBreakdown(
       month,
       tokens: 0,
       cost: 0,
+      aiCredits: 0,
       sessions: 0,
       interactions: 0,
       daysTracked: 0,
     };
     existing.tokens += point.tokens;
     existing.cost += point.cost;
+    existing.aiCredits += point.aiCredits;
     existing.sessions += point.sessions;
     existing.interactions += point.interactions;
     existing.daysTracked += 1;
@@ -416,12 +436,16 @@ export async function scanUsage(lookbackDays: number): Promise<UsageResult> {
       content,
       estimateTokensFromText,
     );
-    if (parsed.tokens === 0) {
+    if (parsed.tokens === 0 && parsed.aiCredits === 0) {
       continue;
     }
 
     const dateKey = toDayKey(stat.mtime);
-    const estimatedCost = calculateEstimatedCost(parsed.modelUsage);
+    const calculatedCost = calculateEstimatedCost(parsed.modelUsage);
+    const estimatedAiCredits =
+      parsed.aiCredits > 0 ? parsed.aiCredits : calculateAiCredits(calculatedCost);
+    const estimatedCost =
+      parsed.aiCredits > 0 ? parsed.aiCredits * AI_CREDIT_USD : calculatedCost;
 
     const existingPoint =
       dailyMap.get(dateKey) ?? createEmptyDailyPoint(dateKey);
@@ -431,6 +455,7 @@ export async function scanUsage(lookbackDays: number): Promise<UsageResult> {
     existingPoint.thinkingTokens += parsed.thinkingTokens;
     existingPoint.interactions += parsed.interactions;
     existingPoint.cost += estimatedCost;
+    existingPoint.aiCredits += estimatedAiCredits;
     existingPoint.sessions += 1;
     mergeModelUsage(existingPoint.modelUsage, parsed.modelUsage);
     dailyMap.set(dateKey, existingPoint);

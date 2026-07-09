@@ -96,6 +96,13 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
+function formatCredits(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
@@ -143,6 +150,7 @@ function printText(result: UsageResult, opts: CliOptions): void {
     `Interactions: ${formatNumber(stats.interactions).padStart(12)}`,
     `Sessions:     ${formatNumber(stats.sessions).padStart(12)}`,
     `Est. Cost:    ${formatCurrency(stats.estimatedCost).padStart(12)}`,
+    `Est. Credits: ${formatCredits(stats.estimatedAiCredits).padStart(12)}`,
     `Scanned:      ${formatNumber(result.scannedFiles).padStart(12)} files`,
   );
 
@@ -187,6 +195,8 @@ function printJson(result: UsageResult, opts: CliOptions): void {
     interactions: stats.interactions,
     sessions: stats.sessions,
     estimatedCostUsd: Number(stats.estimatedCost.toFixed(6)),
+    estimatedAiCredits: Number(stats.estimatedAiCredits.toFixed(4)),
+    aiCreditUsd: 0.01,
     scannedFiles: result.scannedFiles,
     lookbackDays: result.lookbackDays,
     lastUpdated: result.lastUpdated,
